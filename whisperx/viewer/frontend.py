@@ -137,12 +137,18 @@ function render(data) {
       addSeg(tr, s.start, s.end, (s.text || '').trim(), bad);
     }
   }
-  // Track 3: aligned words
+  // Track 3: aligned sentences (segment-level, not per-word — per-word is too fine)
   if (data.align && data.align.segments) {
-    const tr = makeTrack('对齐词');
-    for (const s of data.align.segments)
-      for (const w of (s.words || []))
-        if (typeof w.start === 'number') addSeg(tr, w.start, w.end, w.word, false);
+    const tr = makeTrack('对齐句');
+    for (const s of data.align.segments) {
+      const words = s.words || [];
+      // Segment may lack start/end; fall back to its first/last word's timing.
+      let st = s.start, en = s.end;
+      if (typeof st !== 'number' && words.length) st = words[0].start;
+      if (typeof en !== 'number' && words.length) en = words[words.length - 1].end;
+      if (typeof st === 'number' && typeof en === 'number')
+        addSeg(tr, st, en, (s.text || '').trim(), false);
+    }
   }
   // Track 4: speakers (from diarized segments)
   if (data.diarize && data.diarize.segments) {
