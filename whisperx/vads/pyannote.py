@@ -238,7 +238,14 @@ class Pyannote(Vad):
         self.vad_pipeline = load_vad_model(device, token=token, model_fp=model_fp)
 
     def __call__(self, audio: AudioFile, **kwargs):
-        return self.vad_pipeline(audio)
+        # Call .apply() directly rather than the pipeline's __call__. In
+        # pyannote-audio v4, Pipeline.__call__ grew a batch branch and returns
+        # a generator for inputs it treats as a batch, instead of the raw
+        # SlidingWindowFeature this VAD pipeline's apply() yields. merge_chunks
+        # needs that SlidingWindowFeature (it does `scores.data.shape`), so a
+        # generator would crash downstream. .apply() bypasses the batch logic
+        # and returns the segmentation directly.
+        return self.vad_pipeline.apply(audio)
 
     @staticmethod
     def preprocess_audio(audio):

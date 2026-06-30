@@ -1,5 +1,5 @@
 __pycache__/
 .venv/
 datas/
-dbg/
+testResult/
 *.egg-info/
