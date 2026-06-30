@@ -25,10 +25,15 @@ _HTML_HEAD = """<!DOCTYPE html>
   video { width:100%; background:#000; border-radius:6px; max-height:42vh; }
   #tracks { margin-top:10px; background:var(--panel); border:1px solid var(--line);
             border-radius:6px; padding:8px; position:relative; overflow-x:auto; }
+  /* Inner container whose width = zoom * 100%; tracks/segments use % so they
+     stretch with it. Parent #tracks scrolls horizontally when zoomed in. */
+  #timeline { position:relative; width:100%; }
   .track { position:relative; height:34px; margin:6px 0; background:#151922;
            border-radius:4px; }
-  .track-label { position:absolute; left:4px; top:3px; font-size:11px;
-                 color:var(--muted); z-index:3; pointer-events:none; }
+  .track-label { position:sticky; left:4px; top:3px; font-size:11px;
+                 color:var(--muted); z-index:4; pointer-events:none;
+                 background:rgba(21,25,34,.85); padding:0 4px; border-radius:3px;
+                 width:fit-content; }
   .seg { position:absolute; top:15px; height:16px; border-radius:3px;
          background:var(--accent); opacity:.8; cursor:pointer; overflow:hidden;
          font-size:10px; white-space:nowrap; color:#06121f; padding:0 3px; }
@@ -36,6 +41,12 @@ _HTML_HEAD = """<!DOCTYPE html>
   .seg.bad { background:var(--bad); }
   #cursor { position:absolute; top:0; bottom:0; width:2px; background:#fff;
             z-index:5; pointer-events:none; }
+  #zoombar { display:flex; align-items:center; gap:8px; margin-top:10px;
+             font-size:12px; color:var(--muted); }
+  #zoombar button { background:#222836; color:var(--fg); border:1px solid var(--line);
+                    border-radius:4px; padding:2px 8px; cursor:pointer; font-size:12px; }
+  #zoombar button:hover { background:#2c3445; }
+  #zoombar input[type=range] { flex:1; max-width:240px; }
   #wave { width:100%; height:60px; display:block; background:#0d1016;
           border-radius:4px; margin:6px 0; }
   #side { background:var(--panel); border:1px solid var(--line); border-radius:6px;
@@ -59,7 +70,15 @@ _HTML_HEAD = """<!DOCTYPE html>
   <div id="left">
     <video id="video" controls src="/media"></video>
     <canvas id="wave"></canvas>
-    <div id="tracks"></div>
+    <div id="zoombar">
+      <span>缩放</span>
+      <button id="zoomOut" title="缩小">−</button>
+      <input id="zoomRange" type="range" min="1" max="40" step="0.5" value="1">
+      <button id="zoomIn" title="放大">+</button>
+      <button id="zoomFit" title="适配宽度">适配</button>
+      <span id="zoomVal">1.0×</span>
+    </div>
+    <div id="tracks"><div id="timeline"></div></div>
   </div>
   <div id="side">
     <div class="legend">
@@ -76,6 +95,7 @@ _HTML_SCRIPT = """
 <script>
 const video = document.getElementById('video');
 const tracksEl = document.getElementById('tracks');
+const timelineEl = document.getElementById('timeline');
 const subsEl = document.getElementById('subs');
 const metaEl = document.getElementById('meta');
 const LP_THRESHOLD = -1.0;   // mirror faster-whisper log_prob_threshold default
@@ -94,7 +114,7 @@ function makeTrack(label) {
   l.className = 'track-label';
   l.textContent = label;
   t.appendChild(l);
-  tracksEl.appendChild(t);
+  timelineEl.appendChild(t);
   return t;
 }
 function addSeg(track, start, end, text, bad) {
@@ -157,15 +177,17 @@ function render(data) {
       if (s.speaker) addSeg(tr, s.start, s.end, s.speaker, false);
   }
 
-  // Moving cursor across all tracks.
+  // Moving cursor across all tracks (inside #timeline so it scales with zoom).
   const cursor = document.createElement('div');
   cursor.id = 'cursor';
-  tracksEl.appendChild(cursor);
+  timelineEl.appendChild(cursor);
   video.addEventListener('timeupdate', () => {
     if (duration > 0) cursor.style.left = (100 * video.currentTime / duration) + '%';
     highlightSub();
+    keepCursorVisible();
   });
 
+  setupZoom();
   renderSubs();
 }
 
@@ -193,6 +215,53 @@ function highlightSub() {
     subEls[i].classList.toggle('active', on);
     if (on) subEls[i].scrollIntoView({ block: 'nearest' });
   }
+}
+
+// ---- horizontal time zoom --------------------------------------------------
+// #timeline width = zoom * 100% of the scroll viewport; segments use %, so
+// they stretch with it and #tracks scrolls horizontally when zoomed in.
+let zoom = 1;
+function applyZoom(z, anchorFrac) {
+  zoom = Math.max(1, Math.min(40, z));
+  // Keep the time under `anchorFrac` (0..1 of viewport) fixed while zooming.
+  const view = tracksEl.clientWidth;
+  const beforeContentX = tracksEl.scrollLeft + (anchorFrac != null ? anchorFrac * view : view / 2);
+  const beforeTotal = timelineEl.scrollWidth || view;
+  const timeFrac = beforeContentX / beforeTotal;
+
+  timelineEl.style.width = (zoom * 100) + '%';
+
+  const afterTotal = view * zoom;
+  const targetX = timeFrac * afterTotal - (anchorFrac != null ? anchorFrac * view : view / 2);
+  tracksEl.scrollLeft = Math.max(0, targetX);
+
+  const rangeEl = document.getElementById('zoomRange');
+  const valEl = document.getElementById('zoomVal');
+  if (rangeEl) rangeEl.value = zoom;
+  if (valEl) valEl.textContent = zoom.toFixed(1) + '×';
+}
+function keepCursorVisible() {
+  if (zoom <= 1 || duration <= 0) return;
+  const view = tracksEl.clientWidth;
+  const cursorX = (video.currentTime / duration) * view * zoom;
+  const left = tracksEl.scrollLeft, right = left + view;
+  // Re-center only when the playhead drifts out of the visible window.
+  if (cursorX < left + view * 0.1 || cursorX > right - view * 0.1)
+    tracksEl.scrollLeft = Math.max(0, cursorX - view / 2);
+}
+function setupZoom() {
+  const rangeEl = document.getElementById('zoomRange');
+  rangeEl.oninput = () => applyZoom(parseFloat(rangeEl.value));
+  document.getElementById('zoomIn').onclick = () => applyZoom(zoom * 1.5);
+  document.getElementById('zoomOut').onclick = () => applyZoom(zoom / 1.5);
+  document.getElementById('zoomFit').onclick = () => applyZoom(1);
+  // Ctrl/⌘ + wheel zooms around the pointer; plain wheel scrolls normally.
+  tracksEl.addEventListener('wheel', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    const frac = (e.clientX - tracksEl.getBoundingClientRect().left) / tracksEl.clientWidth;
+    applyZoom(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), frac);
+  }, { passive: false });
 }
 
 // ---- waveform (best-effort, decoded client-side from /media) ---------------
