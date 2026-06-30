@@ -36,6 +36,7 @@ def cli():
     output_args.add_argument("--max_line_count", type=optional_int, default=None, help="(not possible with --no_align) the maximum number of lines in a segment")
     output_args.add_argument("--highlight_words", type=str2bool, default=False, help="(not possible with --no_align) underline each word as it is spoken in srt and vtt")
     output_args.add_argument("--segment_resolution", type=str, default="sentence", choices=["sentence", "chunk"], help="(not possible with --no_align) the maximum number of characters in a line before breaking the line")
+    output_args.add_argument("--furigana", type=str2bool, default=True, help="(VTT + Japanese only) wrap kanji in <ruby> furigana readings; requires the 'pykakasi' package (pip install 'whisperx[ja]'). Disable with --furigana False")
 
     # ── Transcription ──────────────────────────────────────────────────────
     transcribe_args = parser.add_argument_group("Transcription")

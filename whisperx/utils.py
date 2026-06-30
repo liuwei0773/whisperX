@@ -375,7 +375,15 @@ class WriteVTT(SubtitlesWriter):
 
     def write_result(self, result: dict, file: TextIO, options: dict):
         print("WEBVTT\n", file=file)
+        # Furigana (ruby) is WebVTT-only and only meaningful for Japanese.
+        # Requires pykakasi; add_furigana raises ImportError with install
+        # instructions if missing, which aborts the run.
+        use_furigana = options.get("furigana") and result.get("language") == "ja"
+        if use_furigana:
+            from whisperx.furigana import add_furigana
         for start, end, text in self.iterate_result(result, options):
+            if use_furigana:
+                text = add_furigana(text)
             print(f"{start} --> {end}\n{text}\n", file=file, flush=True)
 
 

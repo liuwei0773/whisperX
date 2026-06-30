@@ -28,6 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+ja = ["pykakasi>=2.2.0"]  # for --furigana ruby annotations on Japanese VTT output
 
 [project.scripts]
 whisperx = "whisperx.__main__:cli"

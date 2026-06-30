@@ -125,6 +125,13 @@ def transcribe_task(args: dict, parser: argparse.ArgumentParser):
     if args["max_line_count"] and not args["max_line_width"]:
         warnings.warn("--max_line_count has no effect without --max_line_width")
     writer_args = {arg: args.pop(arg) for arg in word_options}
+    writer_args["furigana"] = args.pop("furigana")
+    if writer_args["furigana"] and writer_args["highlight_words"]:
+        warnings.warn(
+            "--furigana and --highlight_words both set; highlight_words splits "
+            "Japanese per-character and degrades furigana readings. "
+            "Recommend using --furigana without --highlight_words."
+        )
 
     # Part 1: VAD & ASR Loop
     results = []
