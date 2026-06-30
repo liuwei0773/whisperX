@@ -1,6 +1,8 @@
+import json
 import logging
+import os
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 _LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -65,3 +67,49 @@ def get_logger(name: str) -> logging.Logger:
 
     logger_name = "whisperx" if name == "__main__" else name
     return logging.getLogger(logger_name)
+
+
+def _json_default(obj: Any) -> Any:
+    """Fallback serializer for objects json can't handle natively.
+
+    Mainly numpy scalars/arrays produced along the ASR pipeline; anything
+    else degrades to its repr so a debug dump never crashes the run.
+    """
+    # numpy scalar (np.float32 avg_logprob, etc.) -> python scalar
+    if hasattr(obj, "item") and not hasattr(obj, "__len__"):
+        try:
+            return obj.item()
+        except (ValueError, TypeError):
+            pass
+    # numpy array / tensor -> list
+    if hasattr(obj, "tolist"):
+        try:
+            return obj.tolist()
+        except (ValueError, TypeError):
+            pass
+    return repr(obj)
+
+
+def dump_debug_artifact(debug_dir: Optional[str], filename: str, data: Any) -> None:
+    """Write one pipeline-stage artifact to ``debug_dir`` as pretty JSON.
+
+    No-op when ``debug_dir`` is None (debugging disabled). Failures are logged
+    but never raised — a broken dump must not abort transcription.
+
+    Args:
+        debug_dir: Directory to write into, or None to disable.
+        filename: File name within ``debug_dir`` (e.g. "clip.02_asr.json").
+        data: Any JSON-serializable structure; numpy values are handled.
+    """
+    if debug_dir is None:
+        return
+
+    logger = logging.getLogger("whisperx")
+    try:
+        os.makedirs(debug_dir, exist_ok=True)
+        path = os.path.join(debug_dir, filename)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
+        logger.debug(f"Wrote debug artifact: {path}")
+    except (OSError, TypeError, ValueError) as e:
+        logger.warning(f"Failed to write debug artifact '{filename}': {e}")

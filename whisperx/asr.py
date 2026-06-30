@@ -14,7 +14,7 @@ from transformers.pipelines.pt_utils import PipelineIterator
 from whisperx.audio import N_SAMPLES, SAMPLE_RATE, load_audio, log_mel_spectrogram
 from whisperx.schema import SingleSegment, TranscriptionResult, ProgressCallback
 from whisperx.vads import Vad, Silero, Pyannote
-from whisperx.log_utils import get_logger
+from whisperx.log_utils import get_logger, dump_debug_artifact
 
 logger = get_logger(__name__)
 
@@ -206,6 +206,8 @@ class FasterWhisperPipeline(Pipeline):
         combined_progress=False,
         verbose=False,
         progress_callback: ProgressCallback = None,
+        debug_dir: Optional[str] = None,
+        debug_base: Optional[str] = None,
     ) -> TranscriptionResult:
         if isinstance(audio, str):
             audio = load_audio(audio)
@@ -233,6 +235,23 @@ class FasterWhisperPipeline(Pipeline):
             onset=self._vad_params["vad_onset"],
             offset=self._vad_params["vad_offset"],
         )
+
+        if debug_dir is not None:
+            # Dump the merged VAD chunks that ASR will actually run on: each
+            # chunk's [start, end] plus the raw VAD sub-segments it was built
+            # from. This is the place to look first when segmentation/timing
+            # looks wrong, since segment timestamps come from VAD, not the model.
+            dump_debug_artifact(
+                debug_dir,
+                f"{debug_base}.01_vad_chunks.json",
+                {
+                    "chunk_size": chunk_size,
+                    "vad_onset": self._vad_params["vad_onset"],
+                    "vad_offset": self._vad_params["vad_offset"],
+                    "num_chunks": len(vad_segments),
+                    "chunks": vad_segments,
+                },
+            )
         if self.tokenizer is None:
             language = language or self.detect_language(audio)
             task = task or "transcribe"

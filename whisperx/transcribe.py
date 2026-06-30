@@ -12,7 +12,7 @@ from whisperx.audio import load_audio
 from whisperx.diarize import DiarizationPipeline, assign_word_speakers
 from whisperx.schema import AlignedTranscriptionResult, TranscriptionResult
 from whisperx.utils import LANGUAGES, TO_LANGUAGE_CODE, get_writer
-from whisperx.log_utils import get_logger
+from whisperx.log_utils import get_logger, dump_debug_artifact
 
 logger = get_logger(__name__)
 
@@ -63,6 +63,11 @@ def transcribe_task(args: dict, parser: argparse.ArgumentParser):
     diarize_model_name: str = args.pop("diarize_model")
     print_progress: bool = args.pop("print_progress")
     return_speaker_embeddings: bool = args.pop("speaker_embeddings")
+
+    debug_dir: str = args.pop("debug_dir")
+    if debug_dir is not None:
+        os.makedirs(debug_dir, exist_ok=True)
+        logger.info(f"Debug mode: pipeline stage artifacts will be written to {debug_dir}")
 
     if return_speaker_embeddings and not diarize:
         warnings.warn("--speaker_embeddings has no effect without --diarize")
@@ -146,6 +151,7 @@ def transcribe_task(args: dict, parser: argparse.ArgumentParser):
 
     for audio_path in args.pop("audio"):
         audio = load_audio(audio_path)
+        debug_base = os.path.splitext(os.path.basename(audio_path))[0]
         # >> VAD & ASR
         logger.info("Performing transcription...")
         result: TranscriptionResult = model.transcribe(
@@ -154,6 +160,13 @@ def transcribe_task(args: dict, parser: argparse.ArgumentParser):
             chunk_size=chunk_size,
             print_progress=print_progress,
             verbose=verbose,
+            debug_dir=debug_dir,
+            debug_base=debug_base,
+        )
+        dump_debug_artifact(
+            debug_dir,
+            f"{debug_base}.02_asr.json",
+            {"language": result.get("language"), "segments": result["segments"]},
         )
         results.append((result, audio_path))
 
@@ -198,6 +211,11 @@ def transcribe_task(args: dict, parser: argparse.ArgumentParser):
                     print_progress=print_progress,
                 )
 
+            dump_debug_artifact(
+                debug_dir,
+                f"{os.path.splitext(os.path.basename(audio_path))[0]}.03_align.json",
+                result,
+            )
             results.append((result, audio_path))
 
         # Unload align model
@@ -231,6 +249,11 @@ def transcribe_task(args: dict, parser: argparse.ArgumentParser):
                 speaker_embeddings = None
 
             result = assign_word_speakers(diarize_segments, result, speaker_embeddings)
+            dump_debug_artifact(
+                debug_dir,
+                f"{os.path.splitext(os.path.basename(input_audio_path))[0]}.04_diarize.json",
+                result,
+            )
             results.append((result, input_audio_path))
     # >> Write
     for result, audio_path in results:
