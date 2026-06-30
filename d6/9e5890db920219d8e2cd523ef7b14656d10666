@@ -1,0 +1,19 @@
+whisperx/viewer/frontend.py
+  s_ff077f3c442aad::t_9997791bdeab87 140,142-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d69e5890db920219d8e2cd523ef7b14656d10666",
+  "prompts": {},
+  "sessions": {
+    "s_ff077f3c442aad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "183f412b-e2c0-4566-a956-4bb2625f3de2",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LW <liuwei0773@gmail.com>"
+    }
+  }
+}
