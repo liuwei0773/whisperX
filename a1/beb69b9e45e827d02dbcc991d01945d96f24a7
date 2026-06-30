@@ -1,0 +1,23 @@
+whisperx/viewer/frontend.py
+  s_ff077f3c442aad::t_eabe3c6a8015e7 73-81
+  s_ff077f3c442aad::t_0ec2828e7b6d92 28-30,33-36,44-49
+  s_ff077f3c442aad::t_cf6081a1a8054f 220-266
+  s_ff077f3c442aad::t_80af473e189e2c 98,117
+  s_ff077f3c442aad::t_2df59c733b86f7 180,183,187,190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a1beb69b9e45e827d02dbcc991d01945d96f24a7",
+  "prompts": {},
+  "sessions": {
+    "s_ff077f3c442aad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "183f412b-e2c0-4566-a956-4bb2625f3de2",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "LW <liuwei0773@gmail.com>"
+    }
+  }
+}
