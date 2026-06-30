@@ -29,7 +29,7 @@ _HTML_HEAD = """<!DOCTYPE html>
      stretch with it. Parent #tracks scrolls horizontally when zoomed in. */
   #timeline { position:relative; width:100%; }
   .track { position:relative; height:34px; margin:6px 0; background:#151922;
-           border-radius:4px; }
+           border-radius:4px; cursor:pointer; }
   .track-label { position:sticky; left:4px; top:3px; font-size:11px;
                  color:var(--muted); z-index:4; pointer-events:none;
                  background:rgba(21,25,34,.85); padding:0 4px; border-radius:3px;
@@ -48,7 +48,7 @@ _HTML_HEAD = """<!DOCTYPE html>
   #zoombar button:hover { background:#2c3445; }
   #zoombar input[type=range] { flex:1; max-width:240px; }
   #wave { width:100%; height:60px; display:block; background:#0d1016;
-          border-radius:4px; margin:6px 0; }
+          border-radius:4px; margin:6px 0; cursor:pointer; }
   #side { background:var(--panel); border:1px solid var(--line); border-radius:6px;
           padding:10px; height:78vh; overflow:auto; }
   .sub { padding:6px 8px; border-radius:4px; cursor:pointer; border:1px solid transparent; }
@@ -101,6 +101,9 @@ const metaEl = document.getElementById('meta');
 const LP_THRESHOLD = -1.0;   // mirror faster-whisper log_prob_threshold default
 let duration = 0;            // timeline span in seconds
 let asrSegs = [];            // for subtitle list + highlight
+let trackFollowPausedUntil = 0;
+let programmaticTrackScrollUntil = 0;
+const TRACK_FOLLOW_RESUME_MS = 3000;
 
 function fmt(t) {
   if (t == null || isNaN(t)) return '?';
@@ -110,12 +113,30 @@ function fmt(t) {
 function makeTrack(label) {
   const t = document.createElement('div');
   t.className = 'track';
+  t.addEventListener('click', seekFromTimelineEvent);
   const l = document.createElement('div');
   l.className = 'track-label';
   l.textContent = label;
   t.appendChild(l);
   timelineEl.appendChild(t);
   return t;
+}
+function seekTo(t, autoplay = true) {
+  if (!isFinite(t)) return;
+  const maxTime = video.duration && isFinite(video.duration) ? video.duration : duration;
+  video.currentTime = Math.max(0, Math.min(maxTime || t, t));
+  if (autoplay) video.play();
+}
+function timelineTimeFromEvent(e) {
+  if (duration <= 0) return null;
+  const rect = timelineEl.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  return duration * Math.max(0, Math.min(1, x / rect.width));
+}
+function seekFromTimelineEvent(e) {
+  pauseTrackFollow();
+  const t = timelineTimeFromEvent(e);
+  if (t != null) seekTo(t);
 }
 function addSeg(track, start, end, text, bad) {
   if (duration <= 0) return;
@@ -125,7 +146,12 @@ function addSeg(track, start, end, text, bad) {
   seg.style.width = Math.max(0.2, 100 * (end - start) / duration) + '%';
   seg.title = text ? `[${fmt(start)}–${fmt(end)}] ${text}` : `[${fmt(start)}–${fmt(end)}]`;
   if (text) seg.textContent = text;
-  seg.onclick = () => { video.currentTime = start; video.play(); };
+  seg.onclick = (e) => {
+    e.stopPropagation();
+    pauseTrackFollow();
+    const t = timelineTimeFromEvent(e);
+    seekTo(t == null ? start : t);
+  };
   track.appendChild(seg);
 }
 
@@ -203,7 +229,7 @@ function renderSubs() {
       ? `<span class="lp ${bad ? 'bad' : ''}">lp ${s.avg_logprob.toFixed(2)}</span>` : '';
     div.innerHTML = `${lp}<span class="t">[${fmt(s.start)}–${fmt(s.end)}]</span><br>` +
                     (s.text || '').trim();
-    div.onclick = () => { video.currentTime = s.start; video.play(); };
+    div.onclick = () => seekTo(s.start);
     subsEl.appendChild(div);
     return div;
   });
@@ -221,7 +247,15 @@ function highlightSub() {
 // #timeline width = zoom * 100% of the scroll viewport; segments use %, so
 // they stretch with it and #tracks scrolls horizontally when zoomed in.
 let zoom = 1;
+function pauseTrackFollow() {
+  trackFollowPausedUntil = Date.now() + TRACK_FOLLOW_RESUME_MS;
+}
+function setTrackScrollLeft(x) {
+  programmaticTrackScrollUntil = Date.now() + 100;
+  tracksEl.scrollLeft = Math.max(0, x);
+}
 function applyZoom(z, anchorFrac) {
+  pauseTrackFollow();
   zoom = Math.max(1, Math.min(40, z));
   // Keep the time under `anchorFrac` (0..1 of viewport) fixed while zooming.
   const view = tracksEl.clientWidth;
@@ -233,7 +267,7 @@ function applyZoom(z, anchorFrac) {
 
   const afterTotal = view * zoom;
   const targetX = timeFrac * afterTotal - (anchorFrac != null ? anchorFrac * view : view / 2);
-  tracksEl.scrollLeft = Math.max(0, targetX);
+  setTrackScrollLeft(targetX);
 
   const rangeEl = document.getElementById('zoomRange');
   const valEl = document.getElementById('zoomVal');
@@ -241,13 +275,12 @@ function applyZoom(z, anchorFrac) {
   if (valEl) valEl.textContent = zoom.toFixed(1) + '×';
 }
 function keepCursorVisible() {
-  if (zoom <= 1 || duration <= 0) return;
+  if (zoom <= 1 || duration <= 0 || Date.now() < trackFollowPausedUntil) return;
   const view = tracksEl.clientWidth;
   const cursorX = (video.currentTime / duration) * view * zoom;
   const left = tracksEl.scrollLeft, right = left + view;
-  // Re-center only when the playhead drifts out of the visible window.
   if (cursorX < left + view * 0.1 || cursorX > right - view * 0.1)
-    tracksEl.scrollLeft = Math.max(0, cursorX - view / 2);
+    setTrackScrollLeft(cursorX - view / 2);
 }
 function setupZoom() {
   const rangeEl = document.getElementById('zoomRange');
@@ -257,11 +290,16 @@ function setupZoom() {
   document.getElementById('zoomFit').onclick = () => applyZoom(1);
   // Ctrl/⌘ + wheel zooms around the pointer; plain wheel scrolls normally.
   tracksEl.addEventListener('wheel', (e) => {
+    pauseTrackFollow();
     if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
     const frac = (e.clientX - tracksEl.getBoundingClientRect().left) / tracksEl.clientWidth;
     applyZoom(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), frac);
   }, { passive: false });
+  tracksEl.addEventListener('pointerdown', pauseTrackFollow);
+  tracksEl.addEventListener('scroll', () => {
+    if (Date.now() > programmaticTrackScrollUntil) pauseTrackFollow();
+  }, { passive: true });
 }
 
 // ---- waveform (best-effort, decoded client-side from /media) ---------------
@@ -269,6 +307,12 @@ async function drawWave() {
   const cv = document.getElementById('wave');
   const ctx = cv.getContext('2d');
   cv.width = cv.clientWidth; cv.height = 60;
+  cv.onclick = (e) => {
+    if (duration <= 0) return;
+    const rect = cv.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    seekTo(duration * Math.max(0, Math.min(1, x / rect.width)));
+  };
   try {
     const buf = await (await fetch('/media')).arrayBuffer();
     const ac = new (window.AudioContext || window.webkitAudioContext)();
