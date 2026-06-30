@@ -437,7 +437,7 @@ class WriteJSON(ResultWriter):
     extension: str = "json"
 
     def write_result(self, result: dict, file: TextIO, options: dict):
-        json.dump(result, file, ensure_ascii=False)
+        json.dump(result, file, ensure_ascii=False, indent=2)
 
 
 def get_writer(
